@@ -2,36 +2,22 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
 import { 
   LineChart, Line, AreaChart, Area, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend 
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
 } from 'recharts';
 import { fetchHistoricalData, fetchWatchlist } from '@/lib/api';
-import { HistoricalDataPoint, WatchlistStock } from '@/types';
 
-interface StockChartProps {
-  initialSymbol?: string;
-}
-
-export function StockChart({ initialSymbol = 'AAPL' }: StockChartProps) {
-  const [selectedSymbols, setSelectedSymbols] = useState<string[]>([initialSymbol]);
-  const [data, setData] = useState<any[]>([]);
+export function StockChart({ initialSymbol = 'AAPL' }) {
+  const [selectedSymbol, setSelectedSymbol] = useState(initialSymbol);
+  const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [chartType, setChartType] = useState('line');
-  const [showPercentages, setShowPercentages] = useState(false);
-  const [availableStocks, setAvailableStocks] = useState<WatchlistStock[]>([]);
+  const [chartType, setChartType] = useState('area');
   const [timeframe, setTimeframe] = useState('1m');
+  const [availableStocks, setAvailableStocks] = useState([]);
 
-  const colors = [
-    '#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#0088fe', 
-    '#00C49F', '#FFBB28', '#FF8042', '#a4de6c', '#d0ed57'
-  ];
-
+  // Fetch available stocks for the dropdown
   useEffect(() => {
     async function loadWatchlist() {
       try {
@@ -45,48 +31,29 @@ export function StockChart({ initialSymbol = 'AAPL' }: StockChartProps) {
     loadWatchlist();
   }, []);
 
+  // Load historical data when selected symbol changes
   useEffect(() => {
     async function loadHistoricalData() {
-      if (selectedSymbols.length === 0) return;
-      
       setLoading(true);
       try {
-        // Fetch data for each selected symbol
-        const allData = await Promise.all(
-          selectedSymbols.map(async (symbol) => {
-            try {
-              const historicalData = await fetchHistoricalData(symbol);
-              return { symbol, data: historicalData };
-            } catch (error) {
-              console.error(`Error loading historical data for ${symbol}:`, error);
-              return { symbol, data: [] };
-            }
-          })
-        );
+        const historicalData = await fetchHistoricalData(selectedSymbol);
         
-        // Process and combine the data
-        const processedData = processChartData(allData, showPercentages, timeframe);
+        // Process data based on timeframe
+        const processedData = processChartData(historicalData, timeframe);
         setData(processedData);
       } catch (error) {
-        console.error('Error loading chart data:', error);
+        console.error(`Error loading chart data for ${selectedSymbol}:`, error);
       } finally {
         setLoading(false);
       }
     }
     
     loadHistoricalData();
-    
-    // Set up interval to refresh data every minute
-    const intervalId = setInterval(() => {
-      loadHistoricalData();
-    }, 60000);
-    
-    return () => clearInterval(intervalId);
-  }, [selectedSymbols, showPercentages, timeframe]);
+  }, [selectedSymbol, timeframe]);
 
-  function processChartData(allData, usePercentages, timeframe) {
+  function processChartData(data, timeframe) {
     // Filter data based on timeframe
-    const now = new Date();
+    const now = new Date("2025-04-20");
     const timeframeMap = {
       '1w': 7,
       '1m': 30,
@@ -97,72 +64,32 @@ export function StockChart({ initialSymbol = 'AAPL' }: StockChartProps) {
     };
     
     const daysToInclude = timeframeMap[timeframe];
-    const cutoffDate = new Date();
+    const cutoffDate = new Date(now);
     cutoffDate.setDate(now.getDate() - daysToInclude);
     
-    // Combine data from all symbols
-    const combinedData = {};
-    
-    allData.forEach(({ symbol, data }) => {
-      // Sort data by date and filter by timeframe
-      const filteredData = data
-        .filter(item => new Date(item.date) >= cutoffDate)
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      
-      // Calculate base value for percentages if needed
-      const baseValue = usePercentages && filteredData.length > 0 ? filteredData[0].close : 1;
-      
-      filteredData.forEach(item => {
-        const date = new Date(item.date).toISOString().split('T')[0];
-        
-        if (!combinedData[date]) {
-          combinedData[date] = { date };
-        }
-        
-        const value = usePercentages 
-          ? ((item.close / baseValue) - 1) * 100 
-          : item.close;
-        
-        combinedData[date][symbol] = value;
-      });
-    });
-    
-    return Object.values(combinedData);
+    return data
+      .filter(item => new Date(item.date) >= cutoffDate)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .map(item => ({
+        date: new Date(item.date).toISOString().split('T')[0],
+        value: item.close
+      }));
   }
 
-  const handleSymbolChange = (value: string) => {
-    const symbols = value.split(',');
-    setSelectedSymbols(symbols);
-  };
-
-  const handleChartTypeChange = (value: string) => {
-    setChartType(value);
-  };
-
-  const handleTimeframeChange = (value: string) => {
-    setTimeframe(value);
-  };
-
   if (loading && data.length === 0) {
-    return <div>Loading chart data...</div>;
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+      </div>
+    );
   }
 
   return (
-    <Card className="col-span-3">
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Stock Price History</CardTitle>
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
         <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
-            <Switch 
-              id="percentages" 
-              checked={showPercentages}
-              onCheckedChange={setShowPercentages}
-            />
-            <Label htmlFor="percentages">Show Percentages</Label>
-          </div>
-          
-          <Select value={timeframe} onValueChange={handleTimeframeChange}>
-            <SelectTrigger className="w-[100px]">
+          <Select value={timeframe} onValueChange={setTimeframe}>
+            <SelectTrigger className="w-[100px] bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
               <SelectValue placeholder="Timeframe" />
             </SelectTrigger>
             <SelectContent>
@@ -175,8 +102,8 @@ export function StockChart({ initialSymbol = 'AAPL' }: StockChartProps) {
             </SelectContent>
           </Select>
           
-          <Select value={chartType} onValueChange={handleChartTypeChange}>
-            <SelectTrigger className="w-[100px]">
+          <Select value={chartType} onValueChange={setChartType}>
+            <SelectTrigger className="w-[100px] bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
               <SelectValue placeholder="Chart Type" />
             </SelectTrigger>
             <SelectContent>
@@ -185,110 +112,116 @@ export function StockChart({ initialSymbol = 'AAPL' }: StockChartProps) {
               <SelectItem value="bar">Bar</SelectItem>
             </SelectContent>
           </Select>
-          
-          <Select 
-            value={selectedSymbols.join(',')} 
-            onValueChange={handleSymbolChange}
-          >
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Select stocks" />
-            </SelectTrigger>
-            <SelectContent>
-              {availableStocks.map((stock) => (
-                <SelectItem key={stock.symbol} value={stock.symbol}>
-                  {stock.symbol} - {stock.name}
-                </SelectItem>
-              ))}
-              <SelectItem value="AAPL,MSFT,GOOGL">Top Tech</SelectItem>
-              <SelectItem value="AAPL,MSFT,GOOGL,AMZN,META">FAANG+</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
-      </CardHeader>
-      <CardContent>
-        <div className="h-[400px]">
-          <ResponsiveContainer width="100%" height="100%">
-            {chartType === 'line' ? (
-              <LineChart data={data}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis 
-                  domain={['auto', 'auto']} 
-                  tickFormatter={(value) => showPercentages ? `${value.toFixed(2)}%` : `$${value.toFixed(2)}`}
-                />
-                <Tooltip 
-                  formatter={(value: number, name) => [
-                    showPercentages ? `${value.toFixed(2)}%` : `$${value.toFixed(2)}`, 
-                    name
-                  ]}
-                />
-                <Legend />
-                {selectedSymbols.map((symbol, index) => (
-                  <Line 
-                    key={symbol}
-                    type="monotone" 
-                    dataKey={symbol} 
-                    stroke={colors[index % colors.length]} 
-                    activeDot={{ r: 8 }} 
-                    name={symbol}
-                  />
-                ))}
-              </LineChart>
-            ) : chartType === 'area' ? (
-              <AreaChart data={data}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis 
-                  domain={['auto', 'auto']} 
-                  tickFormatter={(value) => showPercentages ? `${value.toFixed(2)}%` : `$${value.toFixed(2)}`}
-                />
-                <Tooltip 
-                  formatter={(value: number, name) => [
-                    showPercentages ? `${value.toFixed(2)}%` : `$${value.toFixed(2)}`, 
-                    name
-                  ]}
-                />
-                <Legend />
-                {selectedSymbols.map((symbol, index) => (
-                  <Area 
-                    key={symbol}
-                    type="monotone" 
-                    dataKey={symbol} 
-                    stroke={colors[index % colors.length]} 
-                    fill={colors[index % colors.length]} 
-                    fillOpacity={0.3}
-                    name={symbol}
-                  />
-                ))}
-              </AreaChart>
-            ) : (
-              <BarChart data={data}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis 
-                  domain={['auto', 'auto']} 
-                  tickFormatter={(value) => showPercentages ? `${value.toFixed(2)}%` : `$${value.toFixed(2)}`}
-                />
-                <Tooltip 
-                  formatter={(value: number, name) => [
-                    showPercentages ? `${value.toFixed(2)}%` : `$${value.toFixed(2)}`, 
-                    name
-                  ]}
-                />
-                <Legend />
-                {selectedSymbols.map((symbol, index) => (
-                  <Bar 
-                    key={symbol}
-                    dataKey={symbol} 
-                    fill={colors[index % colors.length]} 
-                    name={symbol}
-                  />
-                ))}
-              </BarChart>
-            )}
-          </ResponsiveContainer>
-        </div>
-      </CardContent>
-    </Card>
+        
+        <Select value={selectedSymbol} onValueChange={setSelectedSymbol}>
+          <SelectTrigger className="w-[180px] bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
+            <SelectValue placeholder="Select stock" />
+          </SelectTrigger>
+          <SelectContent>
+            {availableStocks.map((stock) => (
+              <SelectItem key={stock.symbol} value={stock.symbol}>
+                {stock.symbol} {stock.name ? `- ${stock.name}` : ''}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      
+      <div className="h-[300px]">
+        <ResponsiveContainer width="100%" height="100%">
+          {chartType === 'line' ? (
+            <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis 
+                dataKey="date" 
+                tick={{ fill: '#6b7280', fontSize: 12 }}
+              />
+              <YAxis 
+                domain={['auto', 'auto']} 
+                tickFormatter={(value) => `$${value.toFixed(2)}`}
+                tick={{ fill: '#6b7280', fontSize: 12 }}
+              />
+              <Tooltip 
+                formatter={(value) => [`$${value.toFixed(2)}`, 'Price']}
+                labelFormatter={(date) => new Date(date).toLocaleDateString()}
+                contentStyle={{ 
+                  backgroundColor: 'white', 
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '0.375rem',
+                  padding: '0.75rem' 
+                }}
+              />
+              <Line 
+                type="monotone" 
+                dataKey="value" 
+                stroke="#10b981" 
+                activeDot={{ r: 8 }} 
+                strokeWidth={2}
+              />
+            </LineChart>
+          ) : chartType === 'area' ? (
+            <AreaChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis 
+                dataKey="date" 
+                tick={{ fill: '#6b7280', fontSize: 12 }}
+              />
+              <YAxis 
+                domain={['auto', 'auto']} 
+                tickFormatter={(value) => `$${value.toFixed(2)}`}
+                tick={{ fill: '#6b7280', fontSize: 12 }}
+              />
+              <Tooltip 
+                formatter={(value) => [`$${value.toFixed(2)}`, 'Price']}
+                labelFormatter={(date) => new Date(date).toLocaleDateString()}
+                contentStyle={{ 
+                  backgroundColor: 'white', 
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '0.375rem',
+                  padding: '0.75rem' 
+                }}
+              />
+              <Area 
+                type="monotone" 
+                dataKey="value" 
+                stroke="#10b981" 
+                fill="#10b981" 
+                fillOpacity={0.2}
+                strokeWidth={2}
+              />
+            </AreaChart>
+          ) : (
+            <BarChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis 
+                dataKey="date" 
+                tick={{ fill: '#6b7280', fontSize: 12 }}
+              />
+              <YAxis 
+                domain={['auto', 'auto']} 
+                tickFormatter={(value) => `$${value.toFixed(2)}`}
+                tick={{ fill: '#6b7280', fontSize: 12 }}
+              />
+              <Tooltip 
+                formatter={(value) => [`$${value.toFixed(2)}`, 'Price']}
+                labelFormatter={(date) => new Date(date).toLocaleDateString()}
+                contentStyle={{ 
+                  backgroundColor: 'white', 
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '0.375rem',
+                  padding: '0.75rem' 
+                }}
+              />
+              <Bar 
+                dataKey="value" 
+                fill="#10b981" 
+                radius={[4, 4, 0, 0]}
+              />
+            </BarChart>
+          )}
+        </ResponsiveContainer>
+      </div>
+    </div>
   );
 }
